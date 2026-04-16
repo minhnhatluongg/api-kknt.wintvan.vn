@@ -1,0 +1,18 @@
+# Các thư mục build của .NET
+[Bb]in/
+[Oo]bj/
+
+# Các file cấu hình của Visual Studio
+.vs/
+*.user
+*.userosscache
+*.sln.docstates
+
+# File cấu hình môi trường (Quan trọng: Không nên đẩy secrets lên)
+appsettings.json
+appsettings.Development.json
+.env
+
+# Các file tạm của hệ thống
+Thumbs.db
+desktop.ini

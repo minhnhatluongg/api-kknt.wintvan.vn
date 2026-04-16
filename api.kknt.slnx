@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="api.kknt.Application/api.kknt.Application.csproj" />
+  <Project Path="api.kknt.Domain/api.kknt.Domain.csproj" />
+  <Project Path="api.kknt.Infrastructure/api.kknt.Infrastructure.csproj" />
+  <Project Path="api.kknt/api.kknt.API.csproj" />
+</Solution>
