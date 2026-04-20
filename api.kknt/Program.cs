@@ -4,37 +4,82 @@ using api.kknt.Application.Options;
 using api.kknt.Infrastructure;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+using Serilog;
 using System.Text;
 
-var builder = WebApplication.CreateBuilder(args);
+// ── 1. Bootstrap logger ──────────────────────────────────────────────────
+// Log sớm từ trước khi host được build, đề phòng startup lỗi.
+Log.Logger = new LoggerConfiguration()
+    .WriteTo.Console()
+    .CreateBootstrapLogger();
 
-builder.Services
-    .AddInfrastructure(builder.Configuration)
-    .AddApplication(builder.Configuration)
-    .AddApiServices();
+try
+{
+    Log.Information("Starting api.kknt host...");
 
-var jwtSettings = builder.Configuration
-    .GetSection("JwtSettings").Get<JwtSettings>()!;
+    var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(opt =>
-    {
-        opt.TokenValidationParameters = new()
+    // ── 2. Serilog đọc config từ appsettings.json -> section "Serilog" ───
+    builder.Host.UseSerilog((ctx, services, cfg) => cfg
+        .ReadFrom.Configuration(ctx.Configuration)
+        .ReadFrom.Services(services)
+        .Enrich.FromLogContext()
+        .Enrich.WithMachineName()
+        .Enrich.WithThreadId()
+        .Enrich.WithProperty("Application", "api.kknt"));
+
+    // ── 3. Cấu hình IIS In-Process (khi host IIS sẽ được áp dụng) ───────
+    builder.WebHost.UseIISIntegration();
+
+    // ── 4. DI – tầng dưới trước, API sau cùng ───────────────────────────
+    builder.Services
+        .AddInfrastructure(builder.Configuration)
+        .AddApplication(builder.Configuration)
+        .AddApiServices(builder.Configuration);
+
+    // ── 5. Authentication / JWT ─────────────────────────────────────────
+    var jwtSettings = builder.Configuration
+        .GetSection("JwtSettings").Get<JwtSettings>()
+        ?? throw new InvalidOperationException(
+            "Section 'JwtSettings' chưa được cấu hình trong appsettings.json");
+
+    builder.Services
+        .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+        .AddJwtBearer(opt =>
         {
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(
-                                           Encoding.UTF8.GetBytes(jwtSettings.SecretKey)),
-            ValidateIssuer = true,
-            ValidIssuer = jwtSettings.Issuer,
-            ValidateAudience = true,
-            ValidAudience = jwtSettings.Audience,
-            ValidateLifetime = true,
-            ClockSkew = TimeSpan.Zero
-        };
-    });
+            opt.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKey         = new SymmetricSecurityKey(
+                    Encoding.UTF8.GetBytes(jwtSettings.SecretKey)),
+                ValidateIssuer           = true,
+                ValidIssuer              = jwtSettings.Issuer,
+                ValidateAudience         = true,
+                ValidAudience            = jwtSettings.Audience,
+                ValidateLifetime         = true,
+                ClockSkew                = TimeSpan.Zero
+            };
+        });
 
-var app = builder.Build();
+    builder.Services.AddAuthorization();
 
-app.UseInfrastructure();
+    // ── 6. Build & run ──────────────────────────────────────────────────
+    var app = builder.Build();
 
-app.Run();
+    app.UseInfrastructure();
+
+    Log.Information("api.kknt host started. Env={Env}", app.Environment.EnvironmentName);
+    app.Run();
+}
+catch (Exception ex) when (ex is not HostAbortedException)
+{
+    Log.Fatal(ex, "api.kknt host terminated unexpectedly.");
+    throw;
+}
+finally
+{
+    Log.CloseAndFlush();
+}
+
+/// <summary>Dùng cho integration test (WebApplicationFactory&lt;Program&gt;).</summary>
+public partial class Program { }
