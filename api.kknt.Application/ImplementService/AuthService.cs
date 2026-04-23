@@ -150,9 +150,9 @@ namespace api.kknt.Application.ImplementService
                     "[Register][A] MST {Tax} found at {Host}", request.TaxCode, targetServerHost);
 
                 var updateRs = await _registrationRepo.UpdatePasswordTCT_UserLogin_bosUser(
-                    user.TaxNumber, user.Password, targetServerHost, ct);
+                user.TaxNumber, user.Password, targetServerHost, ct);
 
-                if (updateRs != 1)
+                if (updateRs == 0)
                 {
                     _logger.LogWarning(
                         "[Register][A] UpdatePasswordTCT FAIL Tax={Tax} Host={Host}",
