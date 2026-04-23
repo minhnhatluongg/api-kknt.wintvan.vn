@@ -1,5 +1,7 @@
 using api.kknt.API.Extensions;
 using api.kknt.Application;
+using api.kknt.Application.ImplementService;
+using api.kknt.Application.InterfaceServices;
 using api.kknt.Application.Options;
 using api.kknt.Infrastructure;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -42,6 +44,20 @@ try
         .GetSection("JwtSettings").Get<JwtSettings>()
         ?? throw new InvalidOperationException(
             "Section 'JwtSettings' chưa được cấu hình trong appsettings.json");
+
+    builder.Services.AddHttpClient<ITctLoginClient, TctLoginClient>((sp, client) =>
+    {
+        var cfg = sp.GetRequiredService<IConfiguration>();
+        var baseUrl = cfg["TctApi:BaseUrl"] ?? throw new InvalidOperationException("Missing TctApi:BaseUrl");
+        var key = cfg["TctApi:InternalKey"] ?? throw new InvalidOperationException("Missing TctApi:InternalKey");
+        var timeout = int.TryParse(cfg["TctApi:TimeoutSeconds"], out var t) ? t : 30;
+
+        client.BaseAddress = new Uri(baseUrl);
+        client.Timeout = TimeSpan.FromSeconds(timeout);
+        client.DefaultRequestHeaders.Add("X-internal-key", key);
+        client.DefaultRequestHeaders.Accept.Add(
+            new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+    });
 
     builder.Services
         .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)

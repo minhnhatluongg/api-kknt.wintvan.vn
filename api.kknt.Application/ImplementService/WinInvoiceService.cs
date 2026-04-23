@@ -10,33 +10,55 @@ public sealed class WinInvoiceService : IWinInvoiceService
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger<WinInvoiceService> _logger;
+
     public WinInvoiceService(HttpClient httpClient, ILogger<WinInvoiceService> logger)
     {
         _httpClient = httpClient;
         _logger = logger;
     }
 
-    public async Task<WinInvoiceData?> GetUserInfoAsync(
-    string taxCode,
-    string password,
-    CancellationToken ct = default)
+    public Task<WinInvoiceData?> GetUserInfoAsync(
+        string taxCode,
+        string password,
+        CancellationToken ct = default)
     {
-        var requestBody = new { taxcode = taxCode, password };
+        var body = new { taxcode = taxCode, password };
+        return CallWinInvoiceAsync("api/bos_user/user", body, taxCode, ct);
+    }
 
+    public Task<WinInvoiceData?> LookupTaxCodeAsync(
+        string taxCode,
+        CancellationToken ct = default)
+    {
+        var body = new { taxcode = taxCode };
+        return CallWinInvoiceAsync("api/bos_user/lookup", body, taxCode, ct);
+    }
+
+    private async Task<WinInvoiceData?> CallWinInvoiceAsync<TBody>(
+        string path,
+        TBody body,
+        string taxCode,
+        CancellationToken ct)
+    {
         _logger.LogInformation("Calling WinInvoice API: {Url} with Body: {@Body}",
-            _httpClient.BaseAddress + "api/bos_user/user", requestBody);
+            _httpClient.BaseAddress + path, body);
 
         try
         {
-            var response = await _httpClient.PostAsJsonAsync(
-                "api/bos_user/user",
-                requestBody,
-                ct);
-
+            var response = await _httpClient.PostAsJsonAsync(path, body, ct);
             var responseContent = await response.Content.ReadAsStringAsync(ct);
 
             _logger.LogInformation("WinInvoice Response Status: {StatusCode}", response.StatusCode);
             _logger.LogInformation("WinInvoice Response Raw Content: {Content}", responseContent);
+
+            // 404 trên endpoint lookup = MST chưa tồn tại → không phải lỗi.
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                _logger.LogInformation(
+                    "WinInvoice lookup returned 404 for TaxCode={TaxCode} → coi như MST chưa có.",
+                    taxCode);
+                return null;
+            }
 
             if (!response.IsSuccessStatusCode)
             {
@@ -46,13 +68,11 @@ public sealed class WinInvoiceService : IWinInvoiceService
 
             var result = JsonSerializer.Deserialize<WinInvoiceAuthResponse>(responseContent, new JsonSerializerOptions
             {
-                PropertyNameCaseInsensitive = true 
+                PropertyNameCaseInsensitive = true
             });
 
             if (result?.IsSuccess == true)
-            {
                 return result.Data;
-            }
 
             _logger.LogWarning("WinInvoice API Success = false. Message: {Message}", result?.ErrorMessage);
             return null;

@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\api.kknt.Domain\api.kknt.Domain.csproj" />
+    <ProjectReference Include="..\api.kknt.Infrastructure\api.kknt.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

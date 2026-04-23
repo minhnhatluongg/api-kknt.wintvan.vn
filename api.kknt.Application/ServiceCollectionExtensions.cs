@@ -18,9 +18,19 @@ public static class ServiceCollectionExtensions
     {
         // --- WinInvoice Options ---
         services.Configure<WinInvoiceOptions>(configuration.GetSection(WinInvoiceOptions.Section));
+
+        // --- Default WinInvoice Server + Registration notification options ---
+        services.Configure<DefaultWinInvoiceServerOptions>(
+            configuration.GetSection(DefaultWinInvoiceServerOptions.Section));
+        services.Configure<RegistrationNotificationOptions>(
+            configuration.GetSection(RegistrationNotificationOptions.Section));
+
         // --- Add Services ---
         services.Configure<JwtSettings>(configuration.GetSection("JwtSettings"));
         services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<IServerTaxCode, ServerTaxCodeService>();
+        services.AddScoped<ITctLoginClient, TctLoginClient>();
+        services.AddScoped<IRegistrationEmailService, RegistrationEmailService>();
 
         services.AddHttpClient<IWinInvoiceService, WinInvoiceService>((serviceProvider, client) =>
         {
