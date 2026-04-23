@@ -16,3 +16,7 @@ appsettings.Development.json
 # Các file tạm của hệ thống
 Thumbs.db
 desktop.ini
+
+# Ignore các folder Log và bên trong.
+Logs/
+*.log

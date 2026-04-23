@@ -60,4 +60,10 @@ public static class ApiErrorCodes
     
     /// <summary>Token không hợp lệ hoặc đã hết hạn.</summary>
     public const string InvalidToken = "INVALID_TOKEN";
+    public const string ServerError = "SERVER_ERROR";
+    // Register-specific
+    public const string TctAuthFailed = "TCT_AUTH_FAILED";
+    public const string MstAlreadyInMaster = "MST_ALREADY_IN_MASTER";
+    public const string UpdatePasswordFailed = "UPDATE_PASSWORD_FAILED";
+    public const string InsertServerFailed = "INSERT_SERVER_FAILED";
 }

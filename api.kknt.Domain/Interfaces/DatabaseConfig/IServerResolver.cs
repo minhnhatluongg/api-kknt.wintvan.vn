@@ -12,5 +12,7 @@ namespace api.kknt.Domain.Interfaces.DatabaseConfig
         Task<TaxServerMapping?> ResolveAsync(string taxCode,
                                              CancellationToken ct = default);
         void InvalidateCache(string taxCode);
+
+        Task<ServerScanResult> CheckIPServerWithReport(string taxCode);
     }
 }

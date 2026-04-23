@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace api.kknt.Infrastructure.AesEncryptionService
 {
-    public class DesEncryptionService : IEncryptionService
+    public class ShaImplement : IEncryptionService
     {
         public string Decrypt(string cipherText)
         {
