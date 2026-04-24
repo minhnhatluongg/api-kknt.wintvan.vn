@@ -79,6 +79,9 @@ try
 
     builder.Services.AddAuthorization();
 
+    // ── Background Services ─────────────────────────────────────────
+    builder.Services.AddHostedService<api.kknt.API.BackgroundServices.RefreshTokenCleanupService>();
+
     // ── 6. Build & run ──────────────────────────────────────────────────
     var app = builder.Build();
 

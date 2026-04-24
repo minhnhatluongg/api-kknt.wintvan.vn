@@ -29,6 +29,69 @@ namespace api.kknt.Infrastructure.Repositories
             _logger     = logger;
         }
 
+        // ──────────────────────────────────────────────────────────────────────
+        //  0) FindServerUser  →  BosEVATbizzi..tblServerUser (inline SQL)
+        //     Dùng cho Login: verify MST tồn tại trên server đích.
+        // ──────────────────────────────────────────────────────────────────────
+        public async Task<ServerUserInfo?> FindServerUserAsync(
+            string taxCode,
+            string serverHost,
+            CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(taxCode))
+                throw new ArgumentException("Thiếu taxCode", nameof(taxCode));
+            if (string.IsNullOrWhiteSpace(serverHost))
+                throw new ArgumentException("Thiếu serverHost", nameof(serverHost));
+
+            await using var conn = await _dbFactory.CreateDynamicConnection(serverHost, BosEVATbizzi, ct);
+
+            const string sql = @"
+                SELECT TOP 1
+                       MST,
+                       FullName,
+                       Server,
+                       MerchantID,
+                       Email,
+                       contactName,
+                       Password,
+                       isDelete
+                  FROM dbo.tblServerUser WITH (NOLOCK)
+                 WHERE MST = @TaxCode
+                   AND (isDelete IS NULL OR isDelete = 0)";
+
+            try
+            {
+                var result = await conn.QueryFirstOrDefaultAsync<ServerUserInfo>(
+                    new CommandDefinition(
+                        commandText: sql,
+                        parameters: new { TaxCode = taxCode },
+                        commandType: CommandType.Text,
+                        cancellationToken: ct));
+
+                if (result != null)
+                {
+                    _logger.LogInformation(
+                        "[Login] tblServerUser FOUND MST={MST} Server={Server} Host={Host}",
+                        taxCode, result.Server, serverHost);
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "[Login] tblServerUser NOT FOUND MST={MST} Host={Host}",
+                        taxCode, serverHost);
+                }
+
+                return result;
+            }
+            catch (SqlException ex)
+            {
+                _logger.LogError(ex,
+                    "[Login] FindServerUser FAIL MST={MST} Host={Host} ErrNo={Err}",
+                    taxCode, serverHost, ex.Number);
+                return null;
+            }
+        }
+
         public async Task<int> UpdatePasswordTCT_UserLogin_bosUser(
             string taxCode,
             string passwordHashed,
@@ -206,9 +269,9 @@ namespace api.kknt.Infrastructure.Repositories
         //     Khác legacy: truyền serverHost thật (không hardcode 103.252.1.234).
         // ──────────────────────────────────────────────────────────────────────
         public async Task<CheckAccountResult?> CreateUserOnServerAsync(
-    ApplicationUser user,
-    string serverHost,
-    CancellationToken ct = default)
+            ApplicationUser user,
+            string serverHost,
+            CancellationToken ct = default)
         {
             await using var connection = await _dbFactory.CreateDynamicConnection(serverHost, BosEVATbizzi, ct: ct);
 
@@ -225,7 +288,7 @@ namespace api.kknt.Infrastructure.Repositories
                 parameters.Add("@mstParent", user.TaxNumber);
                 parameters.Add("@contactName", user.ContactName);
                 parameters.Add("@email", user.CmpnMail);
-                parameters.Add("@isWT", user.IsWT, DbType.Boolean);   // SP param là BIT
+                parameters.Add("@isWT", user.IsWT, DbType.Boolean);   
                 parameters.Add("@option_register", user.OptionFirstJob);
                 parameters.Add("@serverWT", user.ServerWT);
 

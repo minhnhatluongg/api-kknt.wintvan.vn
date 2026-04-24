@@ -62,55 +62,6 @@ namespace api.kknt.API.Controllers
         /// <summary>
         /// Đăng ký tài khoản VITAX cho khách hàng mới.
         /// </summary>
-        /// <remarks>
-        /// Luồng xử lý:
-        ///
-        /// 1. **Xác thực với Tổng cục Thuế (TCT)** — gọi nội bộ endpoint `login_tct_client` để chắc chắn
-        ///    cặp `TaxCode` + `Password` có thể login được trên TCT. Nếu sai → trả `409`.
-        ///
-        /// 2. **Quét MST trên toàn hệ thống WinInvoice** (`IServerTaxService`).
-        ///    - **Kịch bản A (MST đã có trên hệ thống):** lấy `ServerHost` của server đang giữ MST,
-        ///      update `PasswordTCT` trong `bosConfigure.dbo.bosUser`, không tạo master mới.
-        ///    - **Kịch bản B (MST mới hoàn toàn):** dùng server mặc định cấu hình trong
-        ///      `DefaultWinInvoiceServer` (hiện tại `10.10.101.108,5172`), ghi master trước ở
-        ///      `BosEVATbizzi.dbo.tblUserMaster`.
-        ///
-        /// 3. **Insert** vào `tblServerUser` của server đích qua SP `ins_ServerUser_NEW_WT`.
-        ///
-        /// 4. **Tạo đơn Trial 3 tháng** (nuốt lỗi nếu có — không chặn đăng ký).
-        ///
-        /// 5. **Invalidate cache resolver** để lần login kế tiếp trả đúng mapping mới.
-        ///
-        /// 6. **Fire-and-forget** 3 email: cho Khách, Kinh doanh, Hỗ trợ kỹ thuật
-        ///    qua `IRegistrationEmailService.SendAllSafeAsync`.
-        ///
-        /// Ví dụ request:
-        /// ```json
-        /// {
-        ///   "taxCode": "0318607075",
-        ///   "companyName": "CÔNG TY TNHH ABC",
-        ///   "contactName": "Nguyễn Văn A",
-        ///   "cmpnAddress": "123 Lê Lợi, Q.1, TP.HCM",
-        ///   "cmpnPhone": "0909123456",
-        ///   "email": "a@abc.vn",
-        ///   "password": "P@ssword123",
-        ///   "chooseVal": "KKNT"
-        /// }
-        /// ```
-        ///
-        /// Ví dụ response thành công:
-        /// ```json
-        /// {
-        ///   "success": true,
-        ///   "message": "Đăng ký thành công.",
-        ///   "data": {
-        ///     "taxCode": "0318607075",
-        ///     "serverHost": "10.10.101.108,5172",
-        ///     "isNewServer": true
-        ///   }
-        /// }
-        /// ```
-        /// </remarks>
         /// <param name="request">Thông tin đăng ký khách hàng. Xem <see cref="RegisterRequest"/>.</param>
         /// <param name="ct">Cancellation token.</param>
         /// <response code="200">Đăng ký thành công, trả server đích + trạng thái server mới/cũ.</response>
@@ -138,7 +89,6 @@ namespace api.kknt.API.Controllers
             if (result.IsSuccess)
                 return Ok(ApiResponse<RegisterResponse>.Ok(result.Data!, "Đăng ký thành công."));
 
-            // Map lỗi sang HTTP code
             return result.ErrorCode switch
             {
                 RegisterErrorCode.TctAuthFailed => Unauthorized(ApiResponse.Fail(
