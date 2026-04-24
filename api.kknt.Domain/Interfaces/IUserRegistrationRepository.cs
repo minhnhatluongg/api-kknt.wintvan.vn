@@ -5,6 +5,15 @@ namespace api.kknt.Domain.Interfaces
 {
     public interface IUserRegistrationRepository
     {
+        /// <summary>
+        /// Kiểm tra MST có tồn tại trong <c>BosEVATbizzi..tblServerUser</c> trên server đích.
+        /// Dùng inline SQL, KHÔNG dùng stored procedure.
+        /// </summary>
+        Task<ServerUserInfo?> FindServerUserAsync(
+            string taxCode,
+            string serverHost,
+            CancellationToken ct = default);
+
         Task<int> UpdatePasswordTCT_UserLogin_bosUser(
             string taxCode,
             string passwordHashed,

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -14,7 +14,11 @@ namespace api.kknt.Application.DTOs
         public record AuthResponse(
             string AccessToken,
             string RefreshToken,
-            int ExpiresIn,   // seconds
+            int ExpiresIn,
+            string TaxCode,
+            string ServerHost,
+            string? CompanyName,
+            string? BosUserCode,
             string TokenType = "Bearer");
 
         // Claims constants

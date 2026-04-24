@@ -10,8 +10,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
-using System.Net;
-using System.Net.Mail;
 using System.Security.Claims;
 using System.Text;
 using static api.kknt.Application.DTOs.LoginModel;
@@ -25,6 +23,7 @@ namespace api.kknt.Application.ImplementService
         private readonly IServerResolver _serverResolver;
         private readonly IRefreshTokenStore _tokenStore;
         private readonly IUserRegistrationRepository _registrationRepo;
+        private readonly ILoginCacheRepository _loginCache;
         private readonly IPasswordHasher _passwordHasher;
         private readonly JwtSettings _jwt;
         private readonly DefaultWinInvoiceServerOptions _defaultServer;
@@ -40,6 +39,7 @@ namespace api.kknt.Application.ImplementService
             IServerResolver serverResolver,
             IRefreshTokenStore tokenStore,
             IUserRegistrationRepository registrationRepo,
+            ILoginCacheRepository loginCache,
             IPasswordHasher passwordHasher,
             IOptions<JwtSettings> jwt,
             IRegistrationEmailService emailService,
@@ -54,6 +54,7 @@ namespace api.kknt.Application.ImplementService
             _serverResolver = serverResolver;
             _tokenStore = tokenStore;
             _registrationRepo = registrationRepo;
+            _loginCache = loginCache;
             _passwordHasher = passwordHasher;
             _jwt = jwt.Value;
             _defaultServer = defaultServer.Value;
@@ -67,29 +68,92 @@ namespace api.kknt.Application.ImplementService
         
         public async Task<AuthResponse?> LoginAsync(LoginRequest request, CancellationToken ct)
         {
-            // step 1 - xác thực login bằng api WinInvoice
-            var winInfo = await _winInvoice.GetUserInfoAsync(request.TaxCode, request.Password, ct);
-            if (winInfo == null)
+            // ── Step 1: Tìm server — cache-first, scan fallback ──
+            var serverHost = await _loginCache.GetCachedServerAsync(request.TaxCode, ct);
+            bool fromCache = serverHost != null;
+
+            if (serverHost == null)
             {
-                _logger.LogWarning("WinInvoice auth failed for {TaxCode}", request.TaxCode);
+                // Cache miss → scan toàn bộ servers
+                var scanResult = await _serverTaxService.GetServerLocationAsync(request.TaxCode);
+                if (!scanResult.IsFound)
+                {
+                    _logger.LogWarning(
+                        "[Login] MST {TaxCode} not found on any server. Unreachable={Unreachable}",
+                        request.TaxCode,
+                        string.Join(", ", scanResult.UnreachableServers));
+                    return null;
+                }
+
+                serverHost = scanResult.FoundServers.First().ServerHost;
+                _logger.LogInformation(
+                    "[Login] MST {TaxCode} found via SCAN on {ServerHost}",
+                    request.TaxCode, serverHost);
+            }
+
+            // ── Step 2: Build connection → query tblServerUser (inline SQL) ──
+            var serverUser = await _registrationRepo.FindServerUserAsync(
+                request.TaxCode, serverHost, ct);
+
+            if (serverUser == null)
+            {
+                // Nếu cache hit nhưng user không còn trên server đó → cache stale
+                // Thử scan lại 1 lần
+                if (fromCache)
+                {
+                    _logger.LogWarning(
+                        "[Login] Cache stale for {TaxCode} on {ServerHost}. Re-scanning...",
+                        request.TaxCode, serverHost);
+
+                    var reScan = await _serverTaxService.GetServerLocationAsync(request.TaxCode);
+                    if (reScan.IsFound)
+                    {
+                        serverHost = reScan.FoundServers.First().ServerHost;
+                        serverUser = await _registrationRepo.FindServerUserAsync(
+                            request.TaxCode, serverHost, ct);
+                    }
+                }
+
+                if (serverUser == null)
+                {
+                    _logger.LogWarning(
+                        "[Login] TaxCode {TaxCode} not found in tblServerUser",
+                        request.TaxCode);
+                    return null;
+                }
+            }
+
+            // ── Step 3: Verify password ──
+            var inputHash = _passwordHasher.Hash(request.Password ?? "");
+            if (!string.Equals(inputHash, serverUser.Password, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning(
+                    "[Login] Password mismatch for {TaxCode} on {ServerHost}",
+                    request.TaxCode, serverHost);
                 return null;
             }
 
-            // step 2 - mò ip Db server
-            var dbMapping = await _serverResolver.ResolveAsync($"__{winInfo.ServerKey}", ct);
-            if (dbMapping == null)
-            {
-                _logger.LogWarning("No DB mapping for serverKey={ServerKey}", winInfo.ServerKey);
-                return null;
-            }
+            // ── Step 4: Upsert cache (fire-and-forget, không block login) ──
+            _ = _loginCache.UpsertAsync(request.TaxCode, serverHost, ct);
 
-            // step 3 - build token
-            var claims = BuildClaims(winInfo, dbMapping);
+            // ── Step 5: Build JWT claims + tokens ──
+            var claims = BuildClaims(request.TaxCode, serverHost, serverUser);
             var accessToken = GenerateAccessToken(claims);
-            var existingRefreshToken = DateTime.UtcNow.AddDays(3);
-            var refreshToken = await _tokenStore.CreateAsync(request.TaxCode, existingRefreshToken, ct);
+            var refreshExpiry = DateTime.UtcNow.AddDays(_jwt.RefreshExpiryDays);
+            var refreshToken = await _tokenStore.CreateAsync(request.TaxCode, refreshExpiry, ct);
 
-            return new AuthResponse(accessToken, refreshToken, _jwt.ExpiresInSeconds);
+            _logger.LogInformation(
+                "[Login] SUCCESS TaxCode={TaxCode} Server={ServerHost} FromCache={FromCache}",
+                request.TaxCode, serverHost, fromCache);
+
+            return new AuthResponse(
+                AccessToken: accessToken,
+                RefreshToken: refreshToken,
+                ExpiresIn: _jwt.ExpiresInSeconds,
+                TaxCode: request.TaxCode,
+                ServerHost: serverHost,
+                CompanyName: serverUser.FullName,
+                BosUserCode: serverUser.MerchantID);
         }
 
         public Task<AuthResponse?> RefreshAsync(string refreshToken, CancellationToken ct)
@@ -305,16 +369,18 @@ namespace api.kknt.Application.ImplementService
             return RegisterResult.Ok(new RegisterResponse(request.TaxCode, targetServerHost, isNewServer), steps);
         }
 
-        private static List<Claim> BuildClaims(WinInvoiceData winInfo, TaxServerMapping dbMapping) =>
+        private static List<Claim> BuildClaims(
+            string taxCode,
+            string serverHost,
+            ServerUserInfo serverUser) =>
         [
-            new(JwtRegisteredClaimNames.Sub, winInfo.Taxcode!),
+            new(JwtRegisteredClaimNames.Sub, taxCode),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-            new(AppClaims.TaxCode,     winInfo.Taxcode     ?? ""),
-            new(AppClaims.BosUserCode, winInfo.BosUserCode ?? ""),
-            new(AppClaims.CmpnID,      winInfo.CmpnID      ?? ""),
-            new(AppClaims.ServerKey,   winInfo.ServerKey   ?? ""),
-            new(AppClaims.ServerHost,  dbMapping.ServerHost),
-            new(AppClaims.Catalog,     dbMapping.Catalog),
+            new(AppClaims.TaxCode,     taxCode),
+            new(AppClaims.BosUserCode, serverUser.MerchantID ?? ""),
+            new(AppClaims.CmpnID,      serverUser.MST),
+            new(AppClaims.ServerHost,  serverHost),
+            new(AppClaims.Catalog,     "BosEVATbizzi"),
         ];
 
         private string GenerateAccessToken(IEnumerable<Claim> claims)

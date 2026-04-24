@@ -1,4 +1,4 @@
-﻿using api.kknt.Application.InterfaceServices;
+using api.kknt.Application.InterfaceServices;
 using api.kknt.Domain.Interfaces.DatabaseConfig;
 using Dapper;
 using System;
@@ -44,6 +44,31 @@ namespace api.kknt.Infrastructure.Repositories
             await conn.ExecuteAsync(
                 "UPDATE RefreshTokens SET IsRevoked = 1 WHERE Token = @token",
                 new { token });
+        }
+
+        public async Task<int> DeleteExpiredAsync(CancellationToken ct)
+        {
+            using var conn = await _db.CreateDefault_Demo_Async(BosEVATbizzi, ct);
+
+            // Xoá theo batch (TOP 5000) tránh lock table quá lâu.
+            // Xoá token: hết hạn HOẶC đã revoke.
+            const string sql = @"
+                DELETE TOP (5000) FROM RefreshTokens
+                 WHERE ExpiresAt < GETUTCDATE()
+                    OR IsRevoked = 1";
+
+            int totalDeleted = 0;
+            int batchDeleted;
+
+            do
+            {
+                batchDeleted = await conn.ExecuteAsync(
+                    new CommandDefinition(sql, cancellationToken: ct));
+                totalDeleted += batchDeleted;
+            }
+            while (batchDeleted == 5000 && !ct.IsCancellationRequested);
+
+            return totalDeleted;
         }
     }
 }
