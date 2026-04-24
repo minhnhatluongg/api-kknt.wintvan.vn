@@ -1,0 +1,1 @@
+sp_CleanupTestRegistration '@mst' -> server 10.10.101.108,5172 : Xóa master,detail tblServerUser test register

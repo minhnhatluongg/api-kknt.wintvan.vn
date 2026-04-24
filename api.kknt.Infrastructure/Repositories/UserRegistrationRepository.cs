@@ -47,7 +47,7 @@ namespace api.kknt.Infrastructure.Repositories
                 p.Add("@taxcode", taxCode);
                 p.Add("@password", passwordHashed);
 
-                var rows = await conn.ExecuteAsync(new CommandDefinition(
+                var result = await conn.ExecuteScalarAsync<int>(new CommandDefinition(
                     commandText: "bosConfigure..Update_passwordTCT",
                     parameters: p,
                     commandType: CommandType.StoredProcedure,
@@ -55,9 +55,8 @@ namespace api.kknt.Infrastructure.Repositories
 
                 _logger.LogInformation(
                     "[Register] UpdateUserLogin via SP OK Tax={Tax} Host={Host} Rows={Rows}",
-                    taxCode, serverHost, rows);
-
-                return rows < 0 ? 1 : rows;
+                    taxCode, serverHost, "");
+                return result < 0 ? result : (result == 0 ? 0 : 1);
             }
             catch (SqlException ex) when (IsProcedureNotFound(ex) || IsDatabaseMissing(ex))
             {
@@ -72,19 +71,38 @@ namespace api.kknt.Infrastructure.Repositories
                     taxCode, serverHost, ex.Number);
             }
             //Fallback: UPDATE trực tiếp
-            const string sql = @"
-                UPDATE [bosConfigure].[dbo].[bosUser]
-                   SET PasswordTCT = @Password
-                 WHERE LoginName   = @TaxCode;";
+                    const string sql = @"
+                    UPDATE [bosConfigure].[dbo].[bosUser]
+                       SET PasswordTCT = @Password
+                     WHERE LoginName   = @TaxCode
+                       AND (PasswordTCT != @Password OR PasswordTCT IS NULL);
+    
+                    SELECT CASE 
+                        WHEN @@ROWCOUNT > 0 THEN 1          -- đã update
+                        WHEN EXISTS (
+                            SELECT 1 FROM [bosConfigure].[dbo].[bosUser] 
+                            WHERE LoginName = @TaxCode
+                        ) THEN -1                            -- user tồn tại, password không đổi → skip
+                        ELSE 0                               -- không tìm thấy user → lỗi thật
+                    END;";
+
             try
             {
-                var rows = await conn.ExecuteAsync(new CommandDefinition(
+                var result = await conn.ExecuteScalarAsync<int>(new CommandDefinition(
                     commandText: sql,
                     parameters: new { TaxCode = taxCode, Password = passwordHashed },
                     commandType: CommandType.Text,
                     cancellationToken: ct));
 
-                if (rows == 0)
+                if (result == -1)
+                {
+                    _logger.LogInformation(
+                        "[Register] Password không đổi, skip update. Tax={Tax} Host={Host}",
+                        taxCode, serverHost);
+                    return -1;
+                }
+
+                if (result == 0)
                 {
                     _logger.LogWarning(
                         "[Register] UpdateUserLogin inline không match user Tax={Tax} Host={Host}",
@@ -93,9 +111,9 @@ namespace api.kknt.Infrastructure.Repositories
                 }
 
                 _logger.LogInformation(
-                    "[Register] UpdateUserLogin via inline SQL OK Tax={Tax} Host={Host} Rows={Rows}",
-                    taxCode, serverHost, rows);
-                return rows;
+                    "[Register] UpdateUserLogin via inline SQL OK Tax={Tax} Host={Host}",
+                    taxCode, serverHost);
+                return 1;
             }
             catch (SqlException ex)
             {
@@ -112,12 +130,20 @@ namespace api.kknt.Infrastructure.Repositories
         // ──────────────────────────────────────────────────────────────────────
         public async Task<CreateTrialOrderResult> CreateOrderAsync(
             ApplicationUser user,
+            string serverHost,
             CancellationToken ct = default)
         {
+            // Dùng timeout riêng 15s — không phụ thuộc vào CancellationToken HTTP request
+            // để đảm bảo order được tạo ngay cả khi client/Cloudflare đã disconnect.
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            var orderCt = cts.Token;
+
             user.MerchantID ??= user.LoginName;
-            await using var connection = await _dbFactory.CreateDefault_ERP_Async(ct: ct);
             try
             {
+                // Dùng server host chính xác (vd: 10.10.101.108,5172) thay vì default port 1433
+                using var connection = await _dbFactory.CreateDynamicConnection(serverHost, "BosEVATbizzi", orderCt);
+
                 var oid = Guid.NewGuid().ToString("N");
 
                 var p = new DynamicParameters();
@@ -132,10 +158,10 @@ namespace api.kknt.Infrastructure.Repositories
 
                 var result = await connection.QuerySingleOrDefaultAsync<CreateTrialOrderResult>(
                     new CommandDefinition(
-                        "BosOnline..Ins_OrderTrial_New",
+                        "BosEVATbizzi..Ins_OrderTrial_New",
                         p,
                         commandType: CommandType.StoredProcedure,
-                        cancellationToken: ct));
+                        cancellationToken: orderCt));
 
                 if (result is null)
                 {

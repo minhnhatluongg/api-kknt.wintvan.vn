@@ -1,4 +1,4 @@
-﻿using api.kknt.Application.Options;
+using api.kknt.Application.Options;
 using api.kknt.Domain.Interfaces.DatabaseConfig;
 using api.kknt.Infrastructure.Options;
 using Microsoft.Data.SqlClient;
@@ -19,6 +19,9 @@ namespace api.kknt.Infrastructure.Database
         private readonly DefaultWinInvoiceServerOptions _defaultServer;
         private readonly DemoDbOptions _defaultDemo;
         private readonly ErpDbOptions _erpDbOptions;
+
+        /// <summary>Connect timeout mặc định cho tất cả connection (giây).</summary>
+        private const int DefaultConnectTimeout = 10;
 
         public DbConnectionFactory(
             IServerResolver serverResolver,
@@ -44,12 +47,12 @@ namespace api.kknt.Infrastructure.Database
             //Build connection string
             var builder = new SqlConnectionStringBuilder
             {
-                DataSource = mapping.ServerHost,
+                DataSource = ForceTcp(mapping.ServerHost),
                 InitialCatalog = mapping.Catalog,
                 UserID = mapping.User,
                 Password = mapping.Password,
                 TrustServerCertificate = true,
-                ConnectTimeout = 30
+                ConnectTimeout = DefaultConnectTimeout
             };
             var connection =  new SqlConnection(builder.ConnectionString);
             await connection.OpenAsync(ct);
@@ -61,6 +64,8 @@ namespace api.kknt.Infrastructure.Database
         {
             var builder = new SqlConnectionStringBuilder(_masterOpts.ConnectionString);
             builder.InitialCatalog = dbName ?? _masterOpts.DefaultDatabaseName ?? "BosEVATbizzi";
+            builder.ConnectTimeout = DefaultConnectTimeout;
+            builder.DataSource = ForceTcp(builder.DataSource);
             var connection = new SqlConnection(builder.ConnectionString);
             await connection.OpenAsync(ct);
             return connection;
@@ -71,6 +76,8 @@ namespace api.kknt.Infrastructure.Database
         {
             var builder = new SqlConnectionStringBuilder(_defaultDemo.ConnectionString);
             builder.InitialCatalog = dbName ?? _defaultDemo.DefaultDatabaseName ?? "BosEVATbizzi";
+            builder.ConnectTimeout = DefaultConnectTimeout;
+            builder.DataSource = ForceTcp(builder.DataSource);
             var connection = new SqlConnection(builder.ConnectionString);
             await connection.OpenAsync(ct);
             return connection;
@@ -81,6 +88,8 @@ namespace api.kknt.Infrastructure.Database
         {
             var builder = new SqlConnectionStringBuilder(_erpDbOptions.ConnectionString);
             builder.InitialCatalog = dbName ?? _erpDbOptions.DefaultDatabaseName ?? "BosOnline";
+            builder.ConnectTimeout = DefaultConnectTimeout;
+            builder.DataSource = ForceTcp(builder.DataSource);
             var connection = new SqlConnection(builder.ConnectionString);
             await connection.OpenAsync(ct);
             return connection;
@@ -94,13 +103,13 @@ namespace api.kknt.Infrastructure.Database
 
             var b = new SqlConnectionStringBuilder
             {
-                DataSource = serverHost,
+                DataSource = ForceTcp(serverHost),
                 InitialCatalog = database ?? _defaultServer.Catalog ?? "BosEVATbizzi",
                 UserID = _defaultServer.User,
                 Password = _defaultServer.Password,
                 TrustServerCertificate = true,
                 Encrypt = _defaultServer.Encrypt,
-                ConnectTimeout = _defaultServer.ConnectTimeout,
+                ConnectTimeout = DefaultConnectTimeout,
                 MultipleActiveResultSets = true
             };
 
@@ -108,5 +117,13 @@ namespace api.kknt.Infrastructure.Database
             await conn.OpenAsync(ct);
             return conn;
         }
+
+        /// <summary>
+        /// Force TCP protocol để tránh Named Pipes fallback (tốn ~20s nếu server unreachable).
+        /// </summary>
+        private static string ForceTcp(string dataSource)
+            => dataSource.StartsWith("tcp:", StringComparison.OrdinalIgnoreCase)
+                ? dataSource
+                : $"tcp:{dataSource}";
     }
 }

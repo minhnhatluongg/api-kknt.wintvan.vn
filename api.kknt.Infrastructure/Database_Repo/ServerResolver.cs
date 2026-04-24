@@ -1,4 +1,4 @@
-﻿using api.kknt.Domain.Entities;
+using api.kknt.Domain.Entities;
 using api.kknt.Domain.Interfaces.DatabaseConfig;
 using Dapper;
 using Microsoft.Extensions.Logging;
@@ -78,41 +78,101 @@ namespace api.kknt.Infrastructure.Database
 
             taxCode = taxCode.Replace(" ", "");
 
-            // Thay vì dùng Factory, chúng ta tự tạo connection tới Master DB
-            using var conn = CreateDemoConnection();
-
-            var servers = await conn.QueryAsync<TaxServerMapping>(
-                new CommandDefinition(
-                    commandText: "sp_GetServerMapping",
-                    commandType: System.Data.CommandType.StoredProcedure));
+            var servers = await QueryServerMappingWithFallbackAsync("CheckIPServerWithReport");
 
             return await TaxServiceHelper.ScanTaxServerAsync(taxCode, servers);
         }
 
-        // Hàm bổ trợ để tạo Connection tới Demo DB dựa trên Options
-        private SqlConnection CreateDemoConnection()
+        /// <summary>
+        /// Truy vấn sp_GetServerMapping: thử DemoDb trước, nếu fail thì fallback sang MasterDb.
+        /// Force TCP protocol để tránh Named Pipes timeout.
+        /// </summary>
+        private async Task<IEnumerable<TaxServerMapping>> QueryServerMappingWithFallbackAsync(string caller)
         {
-            var builder = new SqlConnectionStringBuilder(_demoOpts.ConnectionString)
+            // 1. Thử DemoDb trước
+            try
             {
-                InitialCatalog = _demoOpts.DefaultDatabaseName
+                _logger.LogInformation("[ServerResolver][{Caller}] Connecting to DemoDb (tcp)...", caller);
+                using var demoConn = CreateConnection(_demoOpts.ConnectionString, _demoOpts.DefaultDatabaseName, connectTimeout: 5);
+                var result = await demoConn.QueryAsync<TaxServerMapping>(
+                    new CommandDefinition(
+                        commandText: "sp_GetServerMapping",
+                        commandType: System.Data.CommandType.StoredProcedure,
+                        commandTimeout: 10));
+                _logger.LogInformation("[ServerResolver][{Caller}] DemoDb OK", caller);
+                return result;
+            }
+            catch (SqlException ex)
+            {
+                _logger.LogWarning(ex, "[ServerResolver][{Caller}] DemoDb FAILED (Error {ErrorNumber}), falling back to MasterDb...",
+                    caller, ex.Number);
+            }
+
+            // 2. Fallback sang MasterDb
+            _logger.LogInformation("[ServerResolver][{Caller}] Connecting to MasterDb (tcp)...", caller);
+            using var masterConn = CreateConnection(_masterOpts.ConnectionString, _masterOpts.DefaultDatabaseName, connectTimeout: 5);
+            var fallbackResult = await masterConn.QueryAsync<TaxServerMapping>(
+                new CommandDefinition(
+                    commandText: "sp_GetServerMapping",
+                    commandType: System.Data.CommandType.StoredProcedure,
+                    commandTimeout: 10));
+            _logger.LogInformation("[ServerResolver][{Caller}] MasterDb OK (fallback)", caller);
+            return fallbackResult;
+        }
+
+        /// <summary>
+        /// Tạo SqlConnection với TCP forced, override ConnectTimeout, và Encrypt=true.
+        /// </summary>
+        private static SqlConnection CreateConnection(string baseConnectionString, string databaseName, int connectTimeout)
+        {
+            var builder = new SqlConnectionStringBuilder(baseConnectionString)
+            {
+                InitialCatalog = databaseName,
+                ConnectTimeout = connectTimeout,
             };
+
+            // Force TCP protocol — tránh Named Pipes fallback (tốn thêm ~20s nếu server unreachable)
+            var dataSource = builder.DataSource;
+            if (!dataSource.StartsWith("tcp:", StringComparison.OrdinalIgnoreCase))
+            {
+                builder.DataSource = $"tcp:{dataSource}";
+            }
+
             return new SqlConnection(builder.ConnectionString);
         }
 
         private async Task<TaxServerMapping?> FetchMappingFromDbAsync(string taxCode, CancellationToken ct)
         {
+            // 1. Thử DemoDb trước
             try
             {
-                using var conn = CreateDemoConnection();
-                return await conn.QueryFirstOrDefaultAsync<TaxServerMapping>(
+                using var demoConn = CreateConnection(_demoOpts.ConnectionString, _demoOpts.DefaultDatabaseName, connectTimeout: 5);
+                return await demoConn.QueryFirstOrDefaultAsync<TaxServerMapping>(
                     new CommandDefinition(
                         commandText: "sp_GetServerMapping",
                         commandType: System.Data.CommandType.StoredProcedure,
+                        commandTimeout: 10,
+                        cancellationToken: ct));
+            }
+            catch (SqlException ex)
+            {
+                _logger.LogWarning(ex, "[ServerResolver] DemoDb failed for FetchMapping({TaxCode}), trying MasterDb...", taxCode);
+            }
+
+            // 2. Fallback sang MasterDb
+            try
+            {
+                using var masterConn = CreateConnection(_masterOpts.ConnectionString, _masterOpts.DefaultDatabaseName, connectTimeout: 10);
+                return await masterConn.QueryFirstOrDefaultAsync<TaxServerMapping>(
+                    new CommandDefinition(
+                        commandText: "sp_GetServerMapping",
+                        commandType: System.Data.CommandType.StoredProcedure,
+                        commandTimeout: 10,
                         cancellationToken: ct));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[ServerResolver] Failed to query Master DB for {TaxCode}", taxCode);
+                _logger.LogError(ex, "[ServerResolver] BOTH DemoDb AND MasterDb failed for {TaxCode}", taxCode);
                 throw;
             }
         }

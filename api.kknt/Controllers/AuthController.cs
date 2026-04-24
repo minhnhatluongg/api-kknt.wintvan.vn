@@ -125,8 +125,8 @@ namespace api.kknt.API.Controllers
         [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status422UnprocessableEntity)]
         [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status500InternalServerError)]
         public async Task<IActionResult> Register(
-    [FromBody] RegisterRequest request,
-    CancellationToken ct)
+            [FromBody] RegisterRequest request,
+            CancellationToken ct)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ApiResponse.Fail(

@@ -100,6 +100,9 @@ namespace api.kknt.Application.ImplementService
 
         public async Task<RegisterResult> RegisterAsync(RegisterRequest request, CancellationToken ct)
         {
+            var steps = new List<RegisterStepLog>();
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+
             // 1) Chuẩn hoá ApplicationUser
             var user = new ApplicationUser
             {
@@ -117,25 +120,35 @@ namespace api.kknt.Application.ImplementService
                 ServerWT = null
             };
 
-            //Tắt để giảm độ trễ và tránh lỗi phát sinh từ TCT.
-            //// 1.1) TCT login
-            //var tct = await _tctLoginClient.LoginAsync(request.TaxCode, request.Password, ct);
-            //if (!tct.IsSuccess)
-            //{
-            //    _logger.LogWarning(
-            //        "[Register] TCT AUTH FAIL Tax={Tax} Code={Code} Status={Status} Msg={Msg}",
-            //        request.TaxCode, tct.Code, tct.Status, tct.Message);
-
-            //    return RegisterResult.Fail(
-            //        RegisterErrorCode.TctAuthFailed,
-            //        string.IsNullOrWhiteSpace(tct.Message)
-            //            ? "Mã số thuế hoặc mật khẩu TCT không đúng."
-            //            : $"Xác thực TCT thất bại: {tct.Message}");
-            //}
-            //_logger.LogInformation("[Register] TCT login OK Tax={Tax}", request.TaxCode);
-
-            // 2) Scan MST trên hệ thống WinInvoice
-            var scanResult = await _serverTaxService.GetServerLocationAsync(request.TaxCode);
+            // ── STEP 1: Scan MST ──
+            sw.Restart();
+            ServerScanResultDto scanResult;
+            try
+            {
+                scanResult = await _serverTaxService.GetServerLocationAsync(request.TaxCode);
+                steps.Add(new RegisterStepLog
+                {
+                    Step = "ScanServer",
+                    Status = scanResult.IsFound ? "OK" : "NOT_FOUND",
+                    Detail = scanResult.IsFound
+                        ? $"Found at {scanResult.FoundServers.First().ServerHost}"
+                        : "MST chưa tồn tại → dùng default server",
+                    ElapsedMs = sw.ElapsedMilliseconds
+                });
+            }
+            catch (Exception ex)
+            {
+                steps.Add(new RegisterStepLog
+                {
+                    Step = "ScanServer",
+                    Status = "FAIL",
+                    Detail = ex.Message,
+                    ElapsedMs = sw.ElapsedMilliseconds
+                });
+                _logger.LogError(ex, "[Register] ScanServer FAIL Tax={Tax}", request.TaxCode);
+                return RegisterResult.Fail(RegisterErrorCode.UnknownError,
+                    "Không thể quét hệ thống server. Vui lòng thử lại.", steps);
+            }
 
             string targetServerHost;
             bool isNewServer;
@@ -149,19 +162,35 @@ namespace api.kknt.Application.ImplementService
                 _logger.LogInformation(
                     "[Register][A] MST {Tax} found at {Host}", request.TaxCode, targetServerHost);
 
+                // ── STEP 2A: Update Password ──
+                sw.Restart();
                 var updateRs = await _registrationRepo.UpdatePasswordTCT_UserLogin_bosUser(
-                    user.TaxNumber, user.Password, targetServerHost, ct);
+                user.TaxNumber, user.Password, targetServerHost, ct);
 
-                if (updateRs != 1)
+                if (updateRs == 0)
                 {
+                    steps.Add(new RegisterStepLog
+                    {
+                        Step = "UpdatePassword",
+                        Status = "FAIL",
+                        Detail = $"Host={targetServerHost}, affected=0",
+                        ElapsedMs = sw.ElapsedMilliseconds
+                    });
                     _logger.LogWarning(
                         "[Register][A] UpdatePasswordTCT FAIL Tax={Tax} Host={Host}",
                         request.TaxCode, targetServerHost);
 
                     return RegisterResult.Fail(
                         RegisterErrorCode.UpdatePasswordFailed,
-                        "Không cập nhật được mật khẩu TCT trên server. Vui lòng liên hệ hỗ trợ.");
+                        "Không cập nhật được mật khẩu TCT trên server. Vui lòng liên hệ hỗ trợ.", steps);
                 }
+                steps.Add(new RegisterStepLog
+                {
+                    Step = "UpdatePassword",
+                    Status = "OK",
+                    Detail = $"Host={targetServerHost}",
+                    ElapsedMs = sw.ElapsedMilliseconds
+                });
             }
             else
             {
@@ -173,19 +202,36 @@ namespace api.kknt.Application.ImplementService
                     "[Register][B] MST {Tax} NOT found → default {Host}",
                     request.TaxCode, targetServerHost);
 
+                // ── STEP 2B: Create Master ──
+                sw.Restart();
                 var createdMaster = await _registrationRepo.CreateUserMasterAsync(user, ct);
                 if (createdMaster != 1)
                 {
+                    steps.Add(new RegisterStepLog
+                    {
+                        Step = "CreateMaster",
+                        Status = "FAIL",
+                        Detail = "MST đã tồn tại trong master",
+                        ElapsedMs = sw.ElapsedMilliseconds
+                    });
                     _logger.LogWarning(
                         "[Register][B] MST {Tax} đã tồn tại ở master → huỷ.", request.TaxCode);
 
                     return RegisterResult.Fail(
                         RegisterErrorCode.MstAlreadyInMaster,
-                        "Mã số thuế đã tồn tại trong hệ thống master.");
+                        "Mã số thuế đã tồn tại trong hệ thống master.", steps);
                 }
+                steps.Add(new RegisterStepLog
+                {
+                    Step = "CreateMaster",
+                    Status = "OK",
+                    Detail = $"Default host={targetServerHost}",
+                    ElapsedMs = sw.ElapsedMilliseconds
+                });
             }
 
-            // 3) Insert tblServerUser
+            // ── STEP 3: Insert tblServerUser ──
+            sw.Restart();
             var checkRs = await _registrationRepo.CreateUserOnServerAsync(user, targetServerHost, ct);
             if (checkRs is null || checkRs.isSuccess != 1)
             {
@@ -199,16 +245,50 @@ namespace api.kknt.Application.ImplementService
                     "CLIENT_EXCEPTION" or
                     _ => RegisterErrorCode.InsertServerFailed
                 };
+                steps.Add(new RegisterStepLog
+                {
+                    Step = "CreateUserOnServer",
+                    Status = "FAIL",
+                    Detail = $"Code={checkRs?.ErrorCode}, Msg={checkRs?.Message}",
+                    ElapsedMs = sw.ElapsedMilliseconds
+                });
 
                 return RegisterResult.Fail(
                     apiCode,
-                    checkRs?.Message ?? "Không thể tạo tài khoản trên server đích.");
+                    checkRs?.Message ?? "Không thể tạo tài khoản trên server đích.", steps);
             }
+            steps.Add(new RegisterStepLog
+            {
+                Step = "CreateUserOnServer",
+                Status = "OK",
+                Detail = $"Host={targetServerHost}",
+                ElapsedMs = sw.ElapsedMilliseconds
+            });
 
-            // 4) Trial
-            try { await _registrationRepo.CreateOrderAsync(user, ct); }
+            // ── STEP 4: Trial Order ──
+            sw.Restart();
+            try
+            {
+                var orderResult = await _registrationRepo.CreateOrderAsync(user, targetServerHost, ct);
+                steps.Add(new RegisterStepLog
+                {
+                    Step = "CreateTrialOrder",
+                    Status = orderResult.isSuccess == 1 ? "OK" : "FAIL",
+                    Detail = orderResult.isSuccess == 1
+                        ? $"OID={orderResult.ExistingOID}, Expiry={orderResult.ExistingExpiry}"
+                        : $"Code={orderResult.ErrorCode}, Msg={orderResult.Message}",
+                    ElapsedMs = sw.ElapsedMilliseconds
+                });
+            }
             catch (Exception ex)
             {
+                steps.Add(new RegisterStepLog
+                {
+                    Step = "CreateTrialOrder",
+                    Status = "FAIL",
+                    Detail = ex.Message,
+                    ElapsedMs = sw.ElapsedMilliseconds
+                });
                 _logger.LogWarning(ex,
                     "[Register] CreateOrder lỗi — bỏ qua. Tax={Tax} Host={Host}",
                     request.TaxCode, targetServerHost);
@@ -219,23 +299,10 @@ namespace api.kknt.Application.ImplementService
             if (scanResult.IsFound && scanResult.FoundServers.First() is { ServerHost: { } serverKey })
                 _serverResolver.InvalidateCache($"__{serverKey}");
 
-            //// 6) Email — fire & forget
-            //var emailCtx = new RegistrationEmailContext
-            //{
-            //    TaxCode = request.TaxCode,
-            //    CompanyName = request.CompanyName,
-            //    ContactName = request.ContactName,
-            //    CustomerEmail = request.Email,
-            //    CustomerPhone = request.CmpnPhone,
-            //    CustomerAddress = request.CmpnAddress,
-            //    ServerHost = targetServerHost,
-            //    IsNewServer = isNewServer,
-            //    RegisterAt = DateTime.Now
-            //};
-            //_ = Task.Run(() => _emailService.SendAllSafeAsync(emailCtx, CancellationToken.None),
-            //             CancellationToken.None);
+            _logger.LogInformation("[Register] COMPLETED Tax={Tax} Host={Host} Steps={@Steps}",
+                request.TaxCode, targetServerHost, steps);
 
-            return RegisterResult.Ok(new RegisterResponse(request.TaxCode, targetServerHost, isNewServer));
+            return RegisterResult.Ok(new RegisterResponse(request.TaxCode, targetServerHost, isNewServer), steps);
         }
 
         private static List<Claim> BuildClaims(WinInvoiceData winInfo, TaxServerMapping dbMapping) =>
