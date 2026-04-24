@@ -130,12 +130,20 @@ namespace api.kknt.Infrastructure.Repositories
         // ──────────────────────────────────────────────────────────────────────
         public async Task<CreateTrialOrderResult> CreateOrderAsync(
             ApplicationUser user,
+            string serverHost,
             CancellationToken ct = default)
         {
+            // Dùng timeout riêng 15s — không phụ thuộc vào CancellationToken HTTP request
+            // để đảm bảo order được tạo ngay cả khi client/Cloudflare đã disconnect.
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            var orderCt = cts.Token;
+
             user.MerchantID ??= user.LoginName;
-            await using var connection = await _dbFactory.CreateDefault_108_Async(ct: ct);
             try
             {
+                // Dùng server host chính xác (vd: 10.10.101.108,5172) thay vì default port 1433
+                using var connection = await _dbFactory.CreateDynamicConnection(serverHost, "BosEVATbizzi", orderCt);
+
                 var oid = Guid.NewGuid().ToString("N");
 
                 var p = new DynamicParameters();
@@ -153,7 +161,7 @@ namespace api.kknt.Infrastructure.Repositories
                         "BosEVATbizzi..Ins_OrderTrial_New",
                         p,
                         commandType: CommandType.StoredProcedure,
-                        cancellationToken: ct));
+                        cancellationToken: orderCt));
 
                 if (result is null)
                 {

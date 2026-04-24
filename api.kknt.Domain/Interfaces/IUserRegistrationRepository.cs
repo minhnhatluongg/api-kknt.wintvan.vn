@@ -13,6 +13,7 @@ namespace api.kknt.Domain.Interfaces
 
         Task<CreateTrialOrderResult> CreateOrderAsync(
             ApplicationUser user,
+            string serverHost,
             CancellationToken ct = default);
 
         /// <summary>
