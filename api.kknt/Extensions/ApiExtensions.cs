@@ -1,5 +1,6 @@
 using api.kknt.API.Middlewares;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.Extensions.FileProviders;
 using Serilog;
 
 namespace api.kknt.API.Extensions;
@@ -84,7 +85,13 @@ public static class WebApplicationExtensions
         // 9. Endpoints
         app.MapControllers();
         app.MapHealthChecksConfigured();
-
+        //10. Static file 
+        app.UseStaticFiles(new StaticFileOptions
+        {
+            FileProvider = new PhysicalFileProvider(
+        app.Environment.ContentRootPath),   
+            RequestPath = ""                        
+        });
         return app;
     }
 }

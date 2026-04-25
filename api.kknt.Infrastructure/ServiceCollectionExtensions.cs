@@ -35,6 +35,7 @@ public static class ServiceCollectionExtensions
         // --- Registration Repository (Dapper) ---
         services.AddScoped<IUserRegistrationRepository, UserRegistrationRepository>();
         services.AddScoped<ILoginCacheRepository, LoginCacheRepository>();
+        services.AddScoped<IDashboardRepository, DashboardRepository>();
 
         return services;
     }

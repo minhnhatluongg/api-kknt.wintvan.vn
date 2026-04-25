@@ -31,6 +31,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IServerTaxCode, ServerTaxCodeService>();
         services.AddScoped<ITctLoginClient, TctLoginClient>();
         services.AddScoped<IRegistrationEmailService, RegistrationEmailService>();
+        services.AddScoped<IDashboardService, DashboardService>();
 
         services.AddHttpClient<IWinInvoiceService, WinInvoiceService>((serviceProvider, client) =>
         {

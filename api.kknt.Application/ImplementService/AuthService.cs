@@ -265,7 +265,9 @@ namespace api.kknt.Application.ImplementService
                 _logger.LogInformation(
                     "[Register][B] MST {Tax} NOT found → default {Host}",
                     request.TaxCode, targetServerHost);
+                //Add bosuser
 
+                //
                 // ── STEP 2B: Create Master ──
                 sw.Restart();
                 var createdMaster = await _registrationRepo.CreateUserMasterAsync(user, ct);
