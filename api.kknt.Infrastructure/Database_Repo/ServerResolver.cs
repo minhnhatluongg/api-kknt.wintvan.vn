@@ -131,7 +131,6 @@ namespace api.kknt.Infrastructure.Database
                 ConnectTimeout = connectTimeout,
             };
 
-            // Force TCP protocol — tránh Named Pipes fallback (tốn thêm ~20s nếu server unreachable)
             var dataSource = builder.DataSource;
             if (!dataSource.StartsWith("tcp:", StringComparison.OrdinalIgnoreCase))
             {

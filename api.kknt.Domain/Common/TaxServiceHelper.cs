@@ -12,10 +12,6 @@ namespace api.kknt.Domain.Common
 {
     public static class TaxServiceHelper
     {
-        /// <summary>
-        /// Quét song song tất cả server để tìm MST.
-        /// Overall timeout 15s — tránh Cloudflare 524.
-        /// </summary>
         private static readonly TimeSpan OverallTimeout = TimeSpan.FromSeconds(15);
 
         public static async Task<ServerScanResult> ScanTaxServerAsync(string taxCode, IEnumerable<TaxServerMapping> servers)

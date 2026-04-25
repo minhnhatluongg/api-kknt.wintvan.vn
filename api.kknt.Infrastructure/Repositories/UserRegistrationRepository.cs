@@ -196,17 +196,14 @@ namespace api.kknt.Infrastructure.Repositories
             string serverHost,
             CancellationToken ct = default)
         {
-            // Dùng timeout riêng 15s — không phụ thuộc vào CancellationToken HTTP request
-            // để đảm bảo order được tạo ngay cả khi client/Cloudflare đã disconnect.
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             var orderCt = cts.Token;
 
             user.MerchantID ??= user.LoginName;
             try
             {
-                // Dùng server host chính xác (vd: 10.10.101.108,5172) thay vì default port 1433
-                using var connection = await _dbFactory.CreateDynamicConnection(serverHost, "BosEVATbizzi", orderCt);
-
+                //using var connection = await _dbFactory.CreateDynamicConnection(serverHost, "BosEVATbizzi", orderCt);
+                using var connection = await _dbFactory.CreateDefault_108_Async(BosEVATbizzi, orderCt);
                 var oid = Guid.NewGuid().ToString("N");
 
                 var p = new DynamicParameters();
