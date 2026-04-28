@@ -69,8 +69,12 @@ namespace api.kknt.API.Controllers
         {
             try
             {
+                var loginName = User.FindFirst(AppClaims.TaxCode)?.Value ?? "";
+                var serverHost = User.FindFirst(AppClaims.ServerHost)?.Value ?? "";
+
+                string taxCode = !string.IsNullOrEmpty(mstCompany) ? mstCompany : loginName;
                 var result = await _dashboardService.GetTotalInvoiceMoneyAsync(
-                    dateFrom ?? "", dateTo ?? "", mstCompany ?? "", ct);
+                    dateFrom ?? "", dateTo ?? "", taxCode, serverHost ,ct);
                 return Ok(ApiResponse<TotalInvoiceMoneyResponse>.Ok(result));
             }
             catch (Exception ex)

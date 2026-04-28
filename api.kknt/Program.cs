@@ -1,10 +1,12 @@
 using api.kknt.API.Extensions;
 using api.kknt.Application;
+using api.kknt.Application.BackgroundServices;
 using api.kknt.Application.ImplementService;
 using api.kknt.Application.InterfaceServices;
 using api.kknt.Application.Options;
 using api.kknt.Infrastructure;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
 using System.Text;
@@ -20,6 +22,9 @@ try
     Log.Information("Starting api.kknt host...");
 
     var builder = WebApplication.CreateBuilder(args);
+
+    builder.Services.AddSingleton(resolver =>
+    resolver.GetRequiredService<IOptions<JwtSettings>>().Value);
 
     // ── 2. Serilog đọc config từ appsettings.json -> section "Serilog" ───
     builder.Host.UseSerilog((ctx, services, cfg) => cfg
@@ -81,6 +86,7 @@ try
 
     // ── Background Services ─────────────────────────────────────────
     builder.Services.AddHostedService<api.kknt.API.BackgroundServices.RefreshTokenCleanupService>();
+    builder.Services.AddHostedService<TrialExpiryService>();
 
     // ── 6. Build & run ──────────────────────────────────────────────────
     var app = builder.Build();

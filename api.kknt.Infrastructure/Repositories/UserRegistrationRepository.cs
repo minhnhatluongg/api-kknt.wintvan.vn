@@ -5,6 +5,7 @@ using api.kknt.Domain.Interfaces.DatabaseConfig;
 using api.kknt.Infrastructure.Database;
 using Dapper;
 using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Data;
@@ -15,11 +16,13 @@ namespace api.kknt.Infrastructure.Repositories
     {
         private readonly IDbConnectionFactory _dbFactory;
         private readonly MasterDbOptions _masterOpts;
+        private readonly IConfiguration _configuration;
         private readonly ILogger<UserRegistrationRepository> _logger;
         private const string BosConfigureDb = "bosConfigure";
         private const string BosEVATbizzi = "BosEVATbizzi";
 
         public UserRegistrationRepository(
+            IConfiguration configuration,
             IDbConnectionFactory dbFactory,
             IOptions<MasterDbOptions> masterOpts,
             ILogger<UserRegistrationRepository> logger)
@@ -27,6 +30,7 @@ namespace api.kknt.Infrastructure.Repositories
             _dbFactory  = dbFactory;
             _masterOpts = masterOpts.Value;
             _logger     = logger;
+            _configuration = configuration;
         }
 
         // ──────────────────────────────────────────────────────────────────────
@@ -213,7 +217,7 @@ namespace api.kknt.Infrastructure.Repositories
                 p.Add("@cusAddress", user.Address);
                 p.Add("@cusEmail", user.CmpnMail ?? string.Empty);
                 p.Add("@cusPhone", user.Tel ?? string.Empty);
-                p.Add("@saleID", "kknt");
+                p.Add("@saleID", _configuration["Sale:DefaultSaleId"]);
                 p.Add("@trialMonths", 3);                         
 
                 var result = await connection.QuerySingleOrDefaultAsync<CreateTrialOrderResult>(

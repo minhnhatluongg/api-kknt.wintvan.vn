@@ -30,6 +30,9 @@ namespace api.kknt.Application.DTOs
             public const string ServerKey = "serverKey";
             public const string Catalog = "catalog";
             public const string ServerHost = "serverHost";
+            public const string SaleID = "saleId";
+            public const string SaleName = "saleName";
+            public const string Role = "role";   
         }
     }
 }

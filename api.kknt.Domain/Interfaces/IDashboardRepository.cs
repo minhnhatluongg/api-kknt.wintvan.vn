@@ -61,8 +61,11 @@ namespace api.kknt.Domain.Interfaces
         // ── Nhóm 2: getTongTienInv ──────────────────────────────────────────────
 
         /// <summary>Lấy tổng tiền hóa đơn (chịu thuế, thuế, thanh toán).</summary>
-        Task<TotalInvoiceMoney> GetTongTienInvAsync(string searchDate, string mstCompany, CancellationToken ct = default);
-
+        //Task<TotalInvoiceMoney> GetTongTienInvAsync(string searchDate, string mstCompany, string serverName, CancellationToken ct = default);
+        Task<TotalInvoiceMoney> GetTongTienInvAsync(
+            string dateFrom, string dateTo,
+            string taxCode, string serverName,
+            CancellationToken ct = default);
         // ── Nhóm 3: getuserCombobox ─────────────────────────────────────────────
 
         /// <summary>Lấy danh sách công ty cho combobox (có phân trang).</summary>
