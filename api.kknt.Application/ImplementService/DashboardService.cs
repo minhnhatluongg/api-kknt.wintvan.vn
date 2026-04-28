@@ -114,11 +114,10 @@ namespace api.kknt.Application.ImplementService
         //  API #2: getTongTienInv
         // ══════════════════════════════════════════════════════════════════════
         public async Task<TotalInvoiceMoneyResponse> GetTotalInvoiceMoneyAsync(
-            string dateFrom, string dateTo, string mstCompany,
+            string dateFrom, string dateTo, string mstCompany, string serverName,
             CancellationToken ct = default)
         {
-            var searchDate = $"|datefrom:{dateFrom}|dateto:{dateTo}";
-            var data = await _repo.GetTongTienInvAsync(searchDate, mstCompany, ct);
+            var data = await _repo.GetTongTienInvAsync(dateFrom, dateTo, mstCompany, serverName , ct);
 
             return new TotalInvoiceMoneyResponse
             {

@@ -12,7 +12,7 @@ namespace api.kknt.Application.InterfaceServices
         Task<DashboardResponse> GetDashboardAsync(string loginName, string serverHost, DateTime dateActiveCmpn, CancellationToken ct = default);
 
         /// <summary>API #2: Lấy tổng tiền hóa đơn.</summary>
-        Task<TotalInvoiceMoneyResponse> GetTotalInvoiceMoneyAsync(string dateFrom, string dateTo, string mstCompany, CancellationToken ct = default);
+        Task<TotalInvoiceMoneyResponse> GetTotalInvoiceMoneyAsync(string dateFrom, string dateTo, string mstCompany, string serverName, CancellationToken ct = default);
 
         /// <summary>API #3: Lấy DS công ty cho combobox.</summary>
         Task<object> GetUserComboboxAsync(string? term, int page, int pageSize, CancellationToken ct = default);

@@ -13,5 +13,7 @@ namespace api.kknt.Application.DTOs
         public string? ErrorCode { get; set; }
         public string? ExistingOID { get; set; }
         public DateTime? ExistingExpiry { get; set; }
+        public int? Status { get; set; }
+        public string? StatusLabel { get; set; }
     }
 }

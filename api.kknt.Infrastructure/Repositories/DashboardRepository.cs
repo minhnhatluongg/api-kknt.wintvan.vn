@@ -4,7 +4,9 @@ using api.kknt.Domain.Interfaces.DatabaseConfig;
 using Dapper;
 using Microsoft.Extensions.Logging;
 using System.Data;
+using System.Data.Common;
 using static Dapper.SqlMapper;
+using static System.Runtime.CompilerServices.RuntimeHelpers;
 using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace api.kknt.Infrastructure.Repositories
@@ -367,8 +369,21 @@ namespace api.kknt.Infrastructure.Repositories
 
         // ── Nhóm 2: getTongTienInv ──────────────────────────────────────────
 
-        public Task<TotalInvoiceMoney> GetTongTienInvAsync(string searchDate, string mstCompany, CancellationToken ct = default)
-            => throw new NotImplementedException("TODO: Gọi SP getTongTienInv");
+        public async Task<TotalInvoiceMoney> GetTongTienInvAsync(
+            string dateFrom, string dateTo,
+            string taxCode, string serverName,
+            CancellationToken ct = default)
+        {
+            using var connection = await _dbFactory.CreateDynamicConnection(serverName, BosEVATbizziDb, ct);
+            string sQuery = @"BosEVATbizzi..get_TongTienInvoices";
+            DynamicParameters parameters = new DynamicParameters();
+            parameters.Add("@MST", taxCode);
+            parameters.Add("@datefrom", dateFrom);
+            parameters.Add("@dateto", dateTo);
+
+            var result = await connection.QueryAsync<TotalInvoiceMoney>(sQuery, param: parameters, commandType: CommandType.StoredProcedure);
+            return result.FirstOrDefault();
+        }
 
         // ── Nhóm 3: getuserCombobox ─────────────────────────────────────────
 
@@ -382,7 +397,40 @@ namespace api.kknt.Infrastructure.Repositories
 
         // ── Nhóm 7: addCart ─────────────────────────────────────────────────
 
-        public Task<AddCartResult> AddCartAsync(string loginName, AddCartRequest request, CancellationToken ct = default)
-            => throw new NotImplementedException("TODO: Gọi SP addCart");
+        public async Task<AddCartResult> AddCartAsync(string loginName, AddCartRequest request, CancellationToken ct = default)
+        {
+            using var connection = await _dbFactory.CreateDefault_108_Async(BosEVATbizziDb, ct: ct);
+            using var transaction = connection.BeginTransaction();
+            try
+            {
+                string sQuery = "BosEVATbizzi..ins_cart";
+
+                DynamicParameters parameters = new DynamicParameters();
+                parameters.Add("@itemID", request.ItemID);
+                parameters.Add("@crt_user", loginName);
+                parameters.Add("@isCreate", false);
+                parameters.Add("@itemName", request.ItemName);
+                parameters.Add("@itemPrice", request.Cur_Price);
+                parameters.Add("@itemQtty", 1);
+                parameters.Add("@ItemUnitName", request.ItemUnitName);
+
+                await connection.ExecuteAsync(
+                    sQuery,
+                    param: parameters,
+                    transaction: transaction,
+                    commandType: CommandType.StoredProcedure
+                );
+
+                transaction.Commit();
+
+                return new AddCartResult { Status = "Success"};
+            }
+            catch (Exception ex)
+            {
+                transaction.Rollback();
+                _logger.LogError(ex, "[AddCart] FAILED - loginName={LoginName} itemID={ItemID}", loginName, request.ItemID);
+                return new AddCartResult { Status = "Failed"};
+            }
+        }
     }
 }

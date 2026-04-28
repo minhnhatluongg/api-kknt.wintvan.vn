@@ -341,8 +341,8 @@ namespace api.kknt.Application.ImplementService
                     Step = "CreateTrialOrder",
                     Status = orderResult.isSuccess == 1 ? "OK" : "FAIL",
                     Detail = orderResult.isSuccess == 1
-                        ? $"OID={orderResult.ExistingOID}, Expiry={orderResult.ExistingExpiry}"
-                        : $"Code={orderResult.ErrorCode}, Msg={orderResult.Message}",
+                            ? $"OID={orderResult.ExistingOID}, Expiry={orderResult.ExistingExpiry}, Status={orderResult.Status}/{orderResult.StatusLabel}"
+                            : $"Code={orderResult.ErrorCode}, Msg={orderResult.Message}",
                     ElapsedMs = sw.ElapsedMilliseconds
                 });
             }
